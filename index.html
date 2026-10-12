@@ -116,6 +116,14 @@ button:focus-visible,input:focus-visible{outline:3px solid var(--teal); outline-
 .flag b{color:var(--amber)}
 .note{background:var(--amber-soft); border:2px solid var(--amber); border-radius:12px; padding:10px 12px; font-size:.93rem; margin:0}
 .note b{color:var(--amber)}
+.diagcard{background:var(--teal-soft); border:2px solid var(--teal); border-radius:18px; padding:18px; display:grid; gap:10px; margin-bottom:14px}
+.diagcard .eyebrow{color:var(--teal)}
+.dlist{list-style:none; margin:0; padding:0; display:grid; gap:6px}
+.dlist li{padding:8px 12px; border-radius:10px; border:2px solid var(--line); background:var(--card)}
+.dlist.weak li{border-color:var(--coral)}
+.dlist.weak li::before{content:"\2192  "; color:var(--coral); font-weight:700}
+.dlist.good li{border-color:var(--teal)}
+.dlist.good li::before{content:"\2713  "; color:var(--teal); font-weight:700}
 .src{font-size:.8rem; color:var(--muted)}
 /* results */
 .big{font-family:var(--display); font-size:3.4rem; font-weight:800; color:var(--coral); line-height:1; font-variant-numeric:tabular-nums}
@@ -174,6 +182,7 @@ function render(){
   if(S.view==="round") return renderRound();
   if(S.view==="inter") return renderInter();
   if(S.view==="results") return renderResults();
+  if(S.view==="diag") return renderDiag();
 }
 function renderGate(){
   app.innerHTML = `<div class="gate"><form class="box" id="gf">
@@ -198,6 +207,7 @@ function renderHome(){
   app.innerHTML = `<header class="hero"><div><button class="btn ghost" id="welcomeback" style="padding:6px 14px">\u2039 Welcome</button></div><p class="eyebrow">PNVN1631 \u00b7 Cooper AH Ch 13 and 14 \u00b7 Clayton Ch 11 and 12 \u00b7 FON community</p>
     <h1>Neuro Sensory Gauntlet</h1>
     <p class="muted">Four weeks, four pages, plus a Final Exam built on the professor's 21 Neuro Concepts. Every page runs three rounds: the original, a full reword, and an ADPIE challenge. Rationales do the teaching, so read them even when you get it right.</p></header>
+    ${diagCard()}
     <div class="weeks">${DATA.map(w=>{ const b=best[w.week];
       return `<article class="week"><div class="head"><span class="num">${META[w.week].num||w.week}</span><div>
         <p class="eyebrow">${META[w.week].label}</p><h2>${esc(w.title)}</h2></div></div>
@@ -206,9 +216,59 @@ function renderHome(){
         ${b!=null?`<span class="badge done">Best round 3: ${b}%</span>`:""}<span class="muted">${esc(META[w.week].due)}</span></div>
         <div><button class="btn" data-w="${w.week}">Open ${META[w.week].label}</button></div></article>`; }).join("")}</div>`;
   app.querySelectorAll("[data-w]").forEach(b=>b.onclick=()=>openWeek(+b.dataset.w));
+  document.getElementById("diag").onclick=openDiag;
   document.getElementById("welcomeback").onclick=()=>{ S.view="welcome"; render(); };
 }
 function openWeek(n){ S.week = newWeekState(n); S.view="start"; render(); }
+/* quick check up: one question per concept from the Final Exam page */
+const DIAG_WEEK = 8;
+function diagCard(){
+  const last = load("nsg_diag");
+  return `<section class="diagcard"><p class="eyebrow">Start here if you feel lost</p>
+    <h2>Where am I at?</h2>
+    <p>One question for each of the professor's 21 neuro concepts. About 15 minutes. At the end you get a map of what you know and what to study next.</p>
+    <div class="row">${last?`<span class="badge">Last check up: ${last.score}% \u00b7 ${last.weak} to study</span>`:""}</div>
+    <div><button class="btn teal" id="diag">Take the check up</button></div></section>`;
+}
+function diagPick(){
+  const wd = weekData(DIAG_WEEK), out=[];
+  const topics=[...new Set(wd.questions.map(q=>q.topic))];
+  topics.forEach(t=>{
+    const all=wd.questions.filter(q=>q.topic===t);
+    const tiers=[all.filter(q=>!q.case&&q.difficulty!=="Difficult"), all.filter(q=>!q.case), all];
+    const pool=tiers.find(x=>x.length); out.push(pick(pool));
+  });
+  return out;
+}
+function openDiag(){
+  S.week = newWeekState(DIAG_WEEK); S.week.diag=true; S.week.pool=diagPick(); S.week.history={}; S.week.retake=false; startRound(1);
+}
+function renderDiag(){
+  const W=S.week, wd=weekData(W.n);
+  const topics=[...new Set(wd.questions.map(q=>q.topic))];
+  const okBy={}; W.items.forEach(it=>{ okBy[it.q.topic]=it.ok; });
+  const got=topics.filter(t=>okBy[t]), weak=topics.filter(t=>!okBy[t]);
+  const sc=W.lastScore;
+  store("nsg_diag",{score:sc, weak:weak.length});
+  const verdict = sc>=80?"You know way more than you think. Polish the few weak spots and you are exam ready."
+    : sc>=60?"Solid base. You are not lost, you just have a short list. Work it top to bottom."
+    : sc>=40?"Halfway there. The list below is your study plan, one concept at a time."
+    : "Totally fixable. Everybody starts somewhere, and now you know exactly where to start.";
+  app.innerHTML = `${barHTML(false)}<div class="stack" style="margin-top:16px">
+    <header class="hero" style="padding-block:6px"><p class="eyebrow">Check up complete</p><p class="big">${sc}%</p>
+      <h1>${got.length} of ${topics.length} concepts</h1><p>${verdict}</p></header>
+    <section class="panel"><h3>Study next (${weak.length})</h3>
+      ${weak.length?`<ul class="dlist weak">${weak.map(t=>`<li>${esc(t)}</li>`).join("")}</ul>
+      <div><button class="btn" id="drill">Drill these ${weak.length} in the Final Exam</button></div>`:`<p>Nothing. Every concept landed. Go take the full Final Exam for real practice.</p>`}</section>
+    <section class="panel"><h3>Got it (${got.length})</h3>
+      ${got.length?`<ul class="dlist good">${got.map(t=>`<li>${esc(t)}</li>`).join("")}</ul>`:`<p class="muted">None yet. That is what the study list is for.</p>`}
+      <p class="muted">One question per concept is a quick map, not a grade. A lucky guess can land in this list, so still skim these before the exam.</p></section>
+    <nav class="foot"><button class="btn ghost" data-nav="home">All weeks</button><button class="btn teal" id="rediag">New check up</button></nav></div>`;
+  bindBar(); bindNav();
+  const d=document.getElementById("drill");
+  if(d) d.onclick=()=>{ S.week=newWeekState(DIAG_WEEK); S.week.topics=new Set(weak); S.view="start"; render(); };
+  document.getElementById("rediag").onclick=openDiag;
+}
 function renderStart(){
   const W=S.week, wd=weekData(W.n);
   const topics=[...new Set(wd.questions.map(q=>q.topic))];
@@ -255,14 +315,14 @@ function barHTML(inRound){
   const pct = inRound&&total? Math.round(W.answered/total*100):0;
   return `<div class="bar"><div class="row">
     <button class="pill" id="back">\u2039 Back</button>
-    <span class="count">${inRound?`${W.answered} of ${total} answered`:META[W.n].label}</span>
+    <span class="count">${inRound?`${W.answered} of ${total} answered`:(W.diag?"Check up":META[W.n].label)}</span>
     <span class="pill score">${inRound?`${W.correct} / ${W.answered}`:"Score"}</span></div>
     ${inRound?`<div class="prog" aria-hidden="true"><i style="width:${pct}%"></i></div>
     <div class="tools"><span class="eyebrow" style="align-self:center">${ROUND_NAME[W.round]}${W.retake?" \u00b7 Retake":""}</span>
     <button class="tool" id="auto" aria-pressed="${W.auto}">Auto advance</button><button class="tool" id="nextun">Next unanswered</button></div>`:""}</div>`;
 }
 function bindBar(){
-  document.getElementById("back").onclick=()=>{ if(S.view==="round"||S.view==="inter"||S.view==="results"){ S.view="start"; } else { S.view="home"; } render(); };
+  document.getElementById("back").onclick=()=>{ if(S.week&&S.week.diag){ S.view="home"; } else if(S.view==="round"||S.view==="inter"||S.view==="results"){ S.view="start"; } else { S.view="home"; } render(); };
   const a=document.getElementById("auto"); if(a) a.onclick=()=>{ S.week.auto=!S.week.auto; a.setAttribute("aria-pressed",S.week.auto); };
   const n=document.getElementById("nextun"); if(n) n.onclick=()=>gotoNextUnanswered(-1);
 }
@@ -276,11 +336,11 @@ function renderRound(){
     lastCase=q.case;
     html+=cardHTML(it,idx);
   });
-  app.innerHTML = `${barHTML(true)}<div class="stack" style="margin-top:14px"><div><p class="eyebrow">${META[W.n].label} \u00b7 ${esc(wd.title)}</p><h2>${ROUND_NAME[W.round]}${W.retake?": persistent misses":""}</h2><p class="muted">${ROUND_SUB[W.round]}</p></div></div>
+  app.innerHTML = `${barHTML(true)}<div class="stack" style="margin-top:14px"><div><p class="eyebrow">${META[W.n].label} \u00b7 ${esc(wd.title)}</p><h2>${W.diag?"Where am I at? Check up":ROUND_NAME[W.round]+(W.retake?": persistent misses":"")}</h2><p class="muted">${W.diag?"One question per concept. Answer honestly, no peeking. This is a map, not a grade.":ROUND_SUB[W.round]}</p></div></div>
     <div class="cards">${html}</div>
-    <div class="foot"><button class="btn ghost" id="restart">Restart this week</button><button class="btn" id="finish" ${W.answered===W.items.length?"":"disabled"}>Finish round</button></div>`;
+    <div class="foot"><button class="btn ghost" id="restart">${W.diag?"Restart check up":"Restart this week"}</button><button class="btn" id="finish" ${W.answered===W.items.length?"":"disabled"}>Finish round</button></div>`;
   bindBar(); bindCards();
-  document.getElementById("restart").onclick=()=>openWeek(W.n);
+  document.getElementById("restart").onclick=()=>W.diag?openDiag():openWeek(W.n);
   document.getElementById("finish").onclick=finishRound;
 }
 function cardHTML(it,idx){
@@ -354,7 +414,8 @@ function finishRound(){
   W.lastScore = Math.round(W.correct/W.items.length*100);
   W.lastMissed = W.items.filter(it=>!it.ok).map(it=>it.q);
   if(W.round===3 && !W.retake){ const best=load("nsg_best")||{}; best[W.n]=Math.max(best[W.n]||0, W.lastScore); store("nsg_best",best); }
-  if(W.retake){ S.view="results"; }
+  if(W.diag){ S.view="diag"; }
+  else if(W.retake){ S.view="results"; }
   else if(W.round===1){ S.view="inter"; }
   else if(W.round===2){ S.view="inter"; }
   else { W.finalMissed = W.lastMissed; S.view="results"; }
